@@ -607,7 +607,7 @@
           </div>
           <div class="actions">
             <button class="btn danger" id="btnLimparForm">Limpar</button>
-            <button class="btn primary" id="btnSalvar">Salvar</button>
+            <button type="button" class="btn primary" id="btnSalvar">Salvar</button>
           </div>
         </div>
         <div class="card-body">
@@ -1559,6 +1559,86 @@
       await apiGet();
     });
   </script>
+<script>
+  // 1) COLE AQUI sua URL /exec do Apps Script
+  const SHEETS_API_URL = "https://script.google.com/macros/s/AKfycbz1Q-sD0lDgpTNNh4KDc93UZ69QiR8WR0qTAubgiFae7fAO4U0mjIdqgcKC4tc4Vd8V/exec";
 
+  async function carregarBMs() {
+    try {
+      const r = await fetch(SHEETS_API_URL);
+      const j = await r.json();
+
+      if (!j.ok) throw new Error("API retornou ok=false");
+
+      // j.data é uma lista de objetos com as colunas da planilha
+      // Ex.: {Data, Empresa, Perfil, Status, Observacao, AtualizadoEm}
+      renderizarTabela(j.data);
+    } catch (err) {
+      console.error(err);
+      alert("Não consegui carregar as BMs. Verifique a URL do Apps Script (/exec) e permissões.");
+    }
+  }
+
+  function renderizarTabela(lista) {
+    // Ajuste aqui pro elemento que você já tem no seu HTML
+    // Se você NÃO tiver uma tabela, eu crio pra você no próximo passo.
+    const tbody = document.querySelector("#bmTableBody");
+    if (!tbody) {
+      console.warn("Não existe #bmTableBody no HTML. Me diga se seu site usa cards/tabela e qual id.");
+      return;
+    }
+
+    tbody.innerHTML = "";
+    lista.forEach(item => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${item.Data ?? ""}</td>
+        <td>${item.Empresa ?? ""}</td>
+        <td>${item.Perfil ?? ""}</td>
+        <td>${item.Status ?? ""}</td>
+        <td>${item.Observacao ?? ""}</td>
+        <td>${item.AtualizadoEm ?? ""}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // Admin: chama isso quando cadastrar uma BM
+  async function salvarBM(dados) {
+    const r = await fetch(SHEETS_API_URL, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(dados)
+    });
+
+    const j = await r.json();
+    if (!j.ok) throw new Error("Falha ao salvar");
+
+    // Recarrega pra aparecer em qualquer PC/celular
+    await carregarBMs();
+  }
+
+  // Carrega automaticamente quando abrir o site (views e admin)
+  document.addEventListener("DOMContentLoaded", () => {
+    carregarBMs();
+  });
+</script>
+<table style="width:100%; border-collapse:collapse;">
+  <thead>
+    <tr>
+      <th>Data</th>
+      <th>Empresa</th>
+      <th>Perfil</th>
+      <th>Status</th>
+      <th>Observação</th>
+      <th>Atualizado em</th>
+    </tr>
+  </thead>
+  <tbody id="bmTableBody"></tbody>
+</table>
+<script>
+document.getElementById("btnSalvar").addEventListener("click", salvarBM);
+</script>
+  
 </body>
 </html>
