@@ -607,7 +607,7 @@
           </div>
           <div class="actions">
             <button class="btn danger" id="btnLimparForm">Limpar</button>
-            <button type="button" class="btn primary" id="btnSalvar">Salvar</button>
+            <button class="btn primary" id="btnSalvar">Salvar</button>
           </div>
         </div>
         <div class="card-body">
@@ -821,12 +821,14 @@
 
       // Endpoints (mantidos do seu projeto atual)
       API: {
-        base: "https://script.google.com/macros/s/AKfycbwhdOrrMmCgE_c-bWDmLnTa37B-Ue6RkWt6mLYX_qMRBq8MH6mbXbNKVfdwpUFxqhp7/exec",
-        get() { return this.base ? `${this.base}?action=get` : ""; },
-        save() { return this.base ? `${this.base}?action=save` : ""; },
-        alter() { return this.base ? `${this.base}?action=alter` : ""; },
-        del() { return this.base ? `${this.base}?action=delete` : ""; }
-      }
+  base: "https://script.google.com/macros/s/AKfycbwhdOrrMmCgE_c-bWDmLnTa37B-Ue6RkWt6mLYX_qMRBq8MH6mbXbNKVfdwpUFxqhp7/exec",
+  get() { return this.base ? `${this.base}?action=get` : ""; },
+  save() { return this.base ? `${this.base}?action=save` : ""; },
+  alter() { return this.base ? `${this.base}?action=alter` : ""; },
+  del() { return this.base ? `${this.base}?action=delete` : ""; }
+},
+SHEETS_CSV_URL: "https://docs.google.com/spreadsheets/d/1plaZIUOYHLSMO610mZbF3g-wGzg7Q3uw7Aobqmzr2mU/export?format=csv&gid=0"
+
     };
 
     /*******************************
@@ -892,17 +894,17 @@
       return safeLower(v).trim();
     }
 
- function normalizeArray(resp) {
-  let data = resp;
-  if (typeof data === "string") {
-    try { data = JSON.parse(data); } catch (_) { return []; }
-  }
-  if (Array.isArray(data)) return data;
-  if (data && Array.isArray(data.data)) return data.data;
-  if (data && Array.isArray(data.items)) return data.items;
-  if (data && data.ok && Array.isArray(data.data)) return data.data; // <- ADD
-  return [];
-}
+    function normalizeArray(resp) {
+      // aceita: [] | {data: []} | {items: []} | string JSON
+      let data = resp;
+      if (typeof data === "string") {
+        try { data = JSON.parse(data); } catch (_) { return []; }
+      }
+      if (Array.isArray(data)) return data;
+      if (data && Array.isArray(data.data)) return data.data;
+      if (data && Array.isArray(data.items)) return data.items;
+      return [];
+    }
 
     function onlyAllowedCompanies(list) {
       return (list || []).filter(r => CONFIG.EMPRESAS.includes(String(r.empresa || "").toUpperCase()))
@@ -1100,97 +1102,163 @@
         .replaceAll("'", "&#039;");
     }
 
-    /*******************************
+        /*******************************
      * API
      *******************************/
-    async function apiGet() {
-      setSync("warn", "Sincronização: carregando…");
-      try {
-        const r = await fetch(CONFIG.API.get(), { method: "GET" });
-        const txt = await r.text();
-        const arr = dedupeRecords(onlyAllowedCompanies(normalizeArray(txt)));
-        if (arr.length) {
-          bmRegistros = arr;
-          saveLocal();
-          renderTable();
-        }
-        setSync("good", "Sincronização: online");
-        els.lastSync.textContent = "Última atualização: " + nowBR();
-      } catch (e) {
-        console.error(e);
-        setSync("bad", "Sincronização: offline (local)");
-        els.lastSync.textContent = "Última atualização: local (" + nowBR() + ")";
+/*******************************
+ * GOOGLE SHEETS (READ via CSV export)
+ * - Evita problemas de CORS no GET (GitHub Pages)
+ * - WRITE continua no Apps Script (no-cors)
+ *******************************/
+function parseCSV(text) {
+  const rows = [];
+  let row = [];
+  let cur = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    const next = text[i+1];
+
+    if (ch === '"' ) {
+      if (inQuotes && next === '"') {
+        cur += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
       }
+      continue;
     }
 
-    async function apiSave(record) {
-      try {
-        await fetch(CONFIG.API.save(), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            data: record.data,
-            empresa: record.empresa,
-            facebook: record.facebook,
-            portifolio: record.portifolio,
-            status: record.status,
-            obs: record.obs
-          })
-        });
-      } catch (e) {
-        console.warn("Falha ao salvar na API, mantendo local.", e);
-      }
-      await apiGet();
+    if (ch === ',' && !inQuotes) {
+      row.push(cur);
+      cur = "";
+      continue;
     }
 
-    async function apiAlter(record) {
-      try {
-        await fetch(CONFIG.API.alter(), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            id: record.id,
-            data: record.data,
-            empresa: record.empresa,
-            facebook: record.facebook,
-            portifolio: record.portifolio,
-            status: record.status,
-            obs: record.obs
-          })
-        });
-      } catch (e) {
-        console.warn("Falha ao alterar na API, mantendo local.", e);
-      }
-      await apiGet();
+    if ((ch === '
+' || ch === '
+') && !inQuotes) {
+      if (ch === '
+' && next === '
+') i++;
+      row.push(cur);
+      cur = "";
+      if (row.length > 1 || row[0] !== "") rows.push(row);
+      row = [];
+      continue;
     }
 
-    async function apiDelete(record) {
-      const payload = { id: record.id, empresa: record.empresa };
-      let ok = false;
-      try {
-        const r = await fetch(CONFIG.API.del(), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-        ok = r.ok;
-      } catch (_) {}
+    cur += ch;
+  }
+  row.push(cur);
+  if (row.length > 1 || row[0] !== "") rows.push(row);
+  return rows;
+}
 
-      // fallback: alguns webhooks não aceitam DELETE no browser
-      if (!ok) {
-        try {
-          const r2 = await fetch(CONFIG.API.del(), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-          });
-          ok = r2.ok;
-        } catch (_) {}
-      }
+function mapSheetRow(headers, row) {
+  const obj = {};
+  for (let i = 0; i < headers.length; i++) {
+    const k = String(headers[i] || "").trim().toLowerCase();
+    obj[k] = row[i] ?? "";
+  }
 
-      await apiGet();
-      return ok;
+  // mapeia para o formato do painel
+  return {
+    id: obj["id"] || obj["_id"] || obj["uuid"] || "",
+    data: obj["data"] || obj["date"] || obj["dia"] || "",
+    empresa: (obj["empresa"] || obj["company"] || "").toUpperCase(),
+    facebook: obj["facebook"] || obj["perfil"] || obj["nome"] || "",
+    portifolio: obj["portifolio"] || obj["portfólio"] || obj["portfolio"] || obj["bm"] || "",
+    status: obj["status"] || "analise",
+    obs: obj["obs"] || obj["observacao"] || obj["observação"] || ""
+  };
+}
+
+async function apiGet() {
+  setSync("warn", "Sincronização: carregando…");
+  try {
+    const url = `${CONFIG.SHEETS_CSV_URL}&t=${Date.now()}`;
+    const r = await fetch(url, { method: "GET", cache: "no-store" });
+    const csv = await r.text();
+
+    // Se vier HTML (erro/permissão), cai no catch abaixo
+    if (csv.trim().startsWith("<")) throw new Error("Resposta não é CSV (provável permissão na planilha).");
+
+    const rows = parseCSV(csv);
+    if (!rows.length) {
+      bmRegistros = [];
+      saveLocal();
+      renderTable();
+      setSync("bad", "Sincronização: sem dados");
+      els.lastSync.textContent = "Última atualização: " + nowBR();
+      return;
     }
+
+    const headers = rows[0];
+    const dataRows = rows.slice(1);
+
+    const mapped = dataRows
+      .filter(rw => rw.some(c => String(c || "").trim() !== ""))
+      .map(rw => mapSheetRow(headers, rw));
+
+    const arr = dedupeRecords(onlyAllowedCompanies(mapped));
+    bmRegistros = arr;
+    saveLocal();
+    renderTable();
+
+    setSync("good", "Sincronização: online");
+    els.lastSync.textContent = "Última atualização: " + nowBR();
+  } catch (e) {
+    console.error(e);
+    setSync("bad", "Sincronização: offline (local)");
+    els.lastSync.textContent = "Última atualização: local (" + nowBR() + ")";
+  }
+}
+
+async function apiSave(record) {
+  try {
+    await fetch(CONFIG.API.save(), {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify(record)
+    });
+  } catch (e) {
+    console.warn("Falha ao salvar na API, mantendo local.", e);
+  }
+  // pequena espera para a planilha refletir (Google pode demorar alguns segundos)
+  setTimeout(apiGet, 900);
+}
+
+async function apiAlter(record) {
+  try {
+    await fetch(CONFIG.API.alter(), {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify(record)
+    });
+  } catch (e) {
+    console.warn("Falha ao alterar na API, mantendo local.", e);
+  }
+  setTimeout(apiGet, 900);
+}
+
+async function apiDelete(record) {
+  try {
+    await fetch(CONFIG.API.del(), {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ id: record.id })
+    });
+  } catch (e) {
+    console.warn("Falha ao deletar na API.", e);
+  }
+  setTimeout(apiGet, 900);
+  return true;
+}
 
     /*******************************
      * ADMIN ACTIONS
@@ -1559,6 +1627,6 @@
       await apiGet();
     });
   </script>
-  
+
 </body>
 </html>
