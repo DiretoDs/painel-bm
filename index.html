@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  https://script.google.com/macros/s/AKfycbzK1jhb6lIgn_D67V3eN1Y9F2BL61lUNoM5yAtrQD6IYrj8oqUWXS5g1uxrIimUYjcY/exec
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Painel BM — GBR / 3P</title>
@@ -857,7 +856,7 @@
 
       // Endpoints (mantidos do seu projeto atual)
       API: {
-        base: "https://script.google.com/macros/s/AKfycbzK1jhb6lIgn_D67V3eN1Y9F2BL61lUNoM5yAtrQD6IYrj8oqUWXS5g1uxrIimUYjcY/exec",
+        base: "",
         get() { return this.base ? `${this.base}?action=get` : ""; },
         save() { return this.base ? `${this.base}?action=save` : ""; },
         alter() { return this.base ? `${this.base}?action=alter` : ""; },
@@ -868,6 +867,7 @@
     /*******************************
      * API BASE (Servidor) - Configurável
      *******************************/
+    const DEFAULT_API_BASE = "https://script.google.com/macros/s/AKfycbzi6U4Fh4XNrn73s5tvN6CLsaB6p0C8W_OXaA7GwW4f-rgFWuhY6-Cqri5Zsienqvwc/exec"; // URL fixa do Apps Script (/exec)
     const API_BASE_KEY = "bm_api_base_v1";
 
     function normalizeApiBase(v) {
@@ -896,7 +896,10 @@
           return decoded;
         }
       } catch (_) {}
-      try { return normalizeApiBase(localStorage.getItem(API_BASE_KEY) || ""); } catch (_) { return ""; }
+      try {
+        const ls = normalizeApiBase(localStorage.getItem(API_BASE_KEY) || "");
+        return ls || normalizeApiBase(DEFAULT_API_BASE);
+      } catch (_) { return normalizeApiBase(DEFAULT_API_BASE); }
     }
 
     function setApiBase(v) {
@@ -1229,7 +1232,6 @@
       try {
         await fetch(CONFIG.API.save(), {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             data: record.data,
             empresa: record.empresa,
@@ -1255,7 +1257,6 @@
       try {
         await fetch(CONFIG.API.alter(), {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             id: record.id,
             data: record.data,
@@ -1284,7 +1285,6 @@
       try {
         const r = await fetch(CONFIG.API.del(), {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
         ok = r.ok;
@@ -1295,7 +1295,6 @@
         try {
           const r2 = await fetch(CONFIG.API.del(), {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
           });
           ok = r2.ok;
