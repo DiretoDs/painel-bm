@@ -21,6 +21,8 @@
     --muted2:#A7B0C0;
     --brand:#3B82F6;
     --brand2:#60A5FA;
+    --gbr:#3B82F6;
+    --p3:#F97316;
     --ok:#22C55E;
     --warn:#F59E0B;
     --bad:#EF4444;
@@ -281,6 +283,8 @@
     vertical-align:top;
   }
   tbody tr:hover td{ background: rgba(59,130,246,.06); }
+  tbody tr[data-empresa="GBR"]{ box-shadow: inset 4px 0 0 rgba(59,130,246,.55); }
+  tbody tr[data-empresa="3P"]{ box-shadow: inset 4px 0 0 rgba(249,115,22,.55); }
   tbody tr:last-child td{ border-bottom:none; }
 
   .pagination{
@@ -310,6 +314,9 @@
   .b-warn{ color: rgba(245,158,11,.95); border-color: rgba(245,158,11,.22); background: rgba(245,158,11,.10); }
   .b-bad{  color: rgba(239,68,68,.95); border-color: rgba(239,68,68,.22); background: rgba(239,68,68,.10); }
   .b-neutral{ color: rgba(226,232,240,.95); }
+  .b-gbr{ color: rgba(59,130,246,.98); border-color: rgba(59,130,246,.22); background: rgba(59,130,246,.12); }
+  .b-3p{ color: rgba(249,115,22,.98); border-color: rgba(249,115,22,.22); background: rgba(249,115,22,.12); }
+
 
   .iconbtn{
     border: 1px solid var(--border2);
@@ -803,9 +810,11 @@
 
         <div style="height:12px"></div>
 
+        <div id="editAuthWrap">
         <label for="editPassword">Senha (Admin)</label>
         <input type="password" id="editPassword" placeholder="Digite a senha de admin para salvar a alteração…" />
-        <div class="hint">A edição só é salva com senha Admin.</div>
+        <div class="hint" id="editAuthHint">A edição só é salva com senha Admin.</div>
+      </div>
       </div>
       <div class="modal-footer">
         <button class="btn" id="btnCancelarEdit">Cancelar</button>
@@ -856,6 +865,7 @@
       EMPRESAS: ["GBR", "3P"],
       STORAGE_KEY: "bm-painel-gbr-3p-v3",
       ITEMS_PER_PAGE: 50,
+      REQUIRE_PASSWORD_ON_EDIT: false,
 
       // Senhas de acesso
       ADMIN_PASSWORD: "ADMIN_123",
@@ -1115,7 +1125,15 @@
       els.editEmpresa.innerHTML = opts2;
     }
 
-    function statusBadge(status) {
+    
+    function empresaBadge(empresa) {
+      const e = String(empresa || "").toUpperCase();
+      if (e === "GBR") return `<span class="badge b-gbr">GBR</span>`;
+      if (e === "3P") return `<span class="badge b-3p">3P</span>`;
+      return `<span class="badge b-neutral">${escapeHtml(e || "-")}</span>`;
+    }
+
+function statusBadge(status) {
       const s = String(status || "").toLowerCase();
       if (s === "aprovado") return `<span class="badge b-good">Aprovado</span>`;
       if (s === "analise") return `<span class="badge b-warn">Em análise</span>`;
@@ -1189,9 +1207,9 @@
                <button class="iconbtn" data-action="del" data-id="${r.id}">Excluir</button>
              </div>`
           : `<span class="hint">—</span>`;
-        return `<tr>
+        return `<tr data-empresa="${escapeHtml((r.empresa||"").toUpperCase())}">
           <td>${formatBRDate(r.data)}</td>
-          <td><span class="badge b-neutral">${r.empresa}</span></td>
+          <td>${empresaBadge(r.empresa)}</td>
           <td>${escapeHtml(r.facebook || "-")}</td>
           <td>${escapeHtml(r.portifolio || "-")}</td>
           <td>${statusBadge(r.status)}</td>
@@ -1287,11 +1305,12 @@
       if (!CONFIG.API || !CONFIG.API.base) {
         showToast("Sincronização", "Servidor não configurado. Alterações ficam apenas no seu dispositivo.", "warn");
         await apiGet();
-        return;
+        return false;
       }
 
+      let ok = false;
       try {
-        await fetch(CONFIG.API.alter(), {
+        const r = await fetch(CONFIG.API.alter(), {
           method: "POST",
           body: JSON.stringify({
             id: record.id,
@@ -1303,13 +1322,29 @@
             obs: record.obs
           })
         });
+
+        // lê resposta do Apps Script (normalmente JSON {ok:true/false})
+        let j = null;
+        try { j = JSON.parse(await r.text()); } catch(_) {}
+        ok = !!(j && j.ok);
+
+        if (!ok) {
+          const msg = (j && j.error) ? j.error : (r.ok ? "Alteração não confirmada pela API." : `HTTP ${r.status}`);
+          throw new Error(msg);
+        }
+
+        showToast("Sincronização", "Alteração salva para todos.", "good");
       } catch (e) {
         console.warn("Falha ao alterar na API, mantendo local.", e);
+        showToast("Sincronização", "Falha ao salvar na API: " + (e && e.message ? e.message : "erro"), "warn", 8000);
       }
-      await apiGet();
+
+      if (ok) await apiGet();
+      return ok;
     }
 
-    async function apiDelete(record) {
+
+async function apiDelete(record) {
       if (!CONFIG.API || !CONFIG.API.base) {
         showToast("Sincronização", "Servidor não configurado. Exclusões ficam apenas no seu dispositivo.", "warn");
         await apiGet();
@@ -1481,14 +1516,22 @@
       els.editObs.value = r.obs || "";
       els.editPassword.value = "";
 
+      if (els.editAuthWrap) {
+        els.editAuthWrap.style.display = CONFIG.REQUIRE_PASSWORD_ON_EDIT ? "" : "none";
+      }
+      if (els.editAuthHint) {
+        els.editAuthHint.textContent = CONFIG.REQUIRE_PASSWORD_ON_EDIT ? "A edição só é salva com senha Admin." : "Sessão Admin ativa: alterações serão salvas automaticamente.";
+      }
+
       els.editOverlay.classList.add("active");
       setTimeout(() => els.editPassword.focus(), 30);
     }
 
     async function saveEdit() {
       if (!ensureAdminOrLogin()) return;
-      if (els.editPassword.value !== CONFIG.ADMIN_PASSWORD) {
-        alert("Senha de Admin incorreta.");
+      if (CONFIG.REQUIRE_PASSWORD_ON_EDIT && els.editPassword.value !== CONFIG.ADMIN_PASSWORD) {
+        showToast("Senha inválida", "Digite a senha Admin para salvar a alteração.", "warn");
+        try { els.editPassword.focus(); } catch(_) {}
         return;
       }
 
@@ -1515,8 +1558,12 @@
       saveLocal();
       renderTable();
       closeEdit();
+      showToast("Alteração aplicada", "Atualizando sincronização…", "good");
 
-      await apiAlter(updated);
+      const ok = await apiAlter(updated);
+      if (!ok) {
+        showToast("Não sincronizou", "A alteração ficou apenas neste dispositivo. Verifique a API/planilha.", "warn", 7000);
+      }
     }
 
     function closeEdit() {
@@ -1668,7 +1715,7 @@
         "loginOverlay","btnFecharLogin","roleSelect","passwordInput","btnEntrar",
         "configOverlay","btnFecharConfig","configApiBase","btnTestarApi","btnCopiarLinkViewer","btnLimparApi","configApiStatus","btnSalvarConfig",
         "confirmOverlay","btnFecharConfirm","btnCancelConfirm","btnOkConfirm","confirmText","confirmPassword",
-        "editOverlay","btnFecharEdit","btnCancelarEdit","btnSalvarEdit","editDate","editEmpresa","editFacebook","editPortfolio","editStatus","editObs","editPassword"
+        "editOverlay","btnFecharEdit","btnCancelarEdit","btnSalvarEdit","editDate","editEmpresa","editFacebook","editPortfolio","editStatus","editObs","editPassword","editAuthWrap","editAuthHint"
       ].forEach(id => els[id] = q(id));
 
       // alias
