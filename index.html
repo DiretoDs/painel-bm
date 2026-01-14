@@ -253,12 +253,13 @@
 
   /* Table */
   .table-wrap{
-    overflow:auto;
+    overflow-y:auto;
+    overflow-x:hidden;
     border: 1px solid var(--border2);
     border-radius: 16px;
     background: rgba(2,6,23,.18);
   }
-  table{ width:100%; border-collapse:separate; border-spacing:0; }
+  table{ width:100%; border-collapse:separate; border-spacing:0; table-layout: fixed; }
   thead th{
     position:sticky; top:0;
     text-align:left;
@@ -271,6 +272,8 @@
     letter-spacing:.35px;
     z-index:1;
   }
+  thead th, tbody td{ overflow-wrap:anywhere; word-break:break-word; }
+
   tbody td{
     padding:12px 12px;
     border-bottom: 1px solid rgba(148,163,184,.08);
@@ -484,6 +487,10 @@
     .table-wrap{ background: rgba(255,255,255,.55); }
     thead th{ background: rgba(248,250,252,.95); }
   }
+
+  /* VIEWER: ocupa largura total (sem coluna vazia) */
+  body.role-viewer .grid{ grid-template-columns: 1fr !important; }
+  body.role-viewer #adminCard{ display:none !important; }
 </style>
 </head>
 <body>
@@ -970,6 +977,37 @@
       return d.toLocaleString("pt-BR");
     }
 
+    // Datas: usa data local (evita bug de UTC em BR)
+    function isoFromDateLocal(d) {
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd}`;
+    }
+
+    function isoTodayLocal() {
+      return isoFromDateLocal(new Date());
+    }
+
+    function formatBRDate(v) {
+      if (!v) return "-";
+      const s = String(v).trim();
+      if (!s) return "-";
+
+      // yyyy-mm-dd (ou yyyy-mm-ddTHH:mm...)
+      const m1 = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (m1) return `${m1[3]}/${m1[2]}/${m1[1]}`;
+
+      // dd/mm/yyyy
+      const m2 = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      if (m2) return s;
+
+      const d = new Date(s);
+      if (!isNaN(d)) return d.toLocaleDateString("pt-BR");
+      return s;
+    }
+
+
     function safeLower(v) {
       return String(v || "").toLowerCase();
     }
@@ -1152,7 +1190,7 @@
              </div>`
           : `<span class="hint">—</span>`;
         return `<tr>
-          <td>${r.data || "-"}</td>
+          <td>${formatBRDate(r.data)}</td>
           <td><span class="badge b-neutral">${r.empresa}</span></td>
           <td>${escapeHtml(r.facebook || "-")}</td>
           <td>${escapeHtml(r.portifolio || "-")}</td>
@@ -1565,6 +1603,8 @@
      *******************************/
     function applyRoleUI() {
       const isAdmin = currentRole === "admin";
+      document.body.classList.toggle("role-admin", isAdmin);
+      document.body.classList.toggle("role-viewer", currentRole === "viewer");
       els.adminCard.classList.toggle("hidden", !isAdmin);
       els.thAcoes.classList.toggle("hidden", !isAdmin);
       // botão de configuração só para Admin
@@ -1771,7 +1811,7 @@
       setApiBase(loadApiBase());
 
       // data default: hoje
-      const today = new Date().toISOString().slice(0,10);
+      const today = isoTodayLocal();
       els.inputDate.value = today;
 
       loadLocal();
