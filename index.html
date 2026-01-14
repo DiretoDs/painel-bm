@@ -1205,11 +1205,9 @@
         const r = await fetch(CONFIG.API.get(), { method: "GET" });
         const txt = await r.text();
         const arr = dedupeRecords(onlyAllowedCompanies(normalizeArray(txt)));
-        if (arr.length) {
-          bmRegistros = arr;
-          saveLocal();
-          renderTable();
-        }
+        bmRegistros = arr;
+        saveLocal();
+        renderTable();
         setSync("good", "Sincronização: online");
         els.lastSync.textContent = "Última atualização: " + nowBR();
       } catch (e) {
@@ -1287,7 +1285,7 @@
           method: "POST",
           body: JSON.stringify(payload)
         });
-        ok = r.ok;
+        try { const j = JSON.parse(await r.text()); ok = !!j.ok; } catch(_) { ok = r.ok; }
       } catch (_) {}
 
       // fallback: alguns webhooks não aceitam DELETE no browser
@@ -1297,7 +1295,7 @@
             method: "POST",
             body: JSON.stringify(payload)
           });
-          ok = r2.ok;
+          try { const j2 = JSON.parse(await r2.text()); ok = !!j2.ok; } catch(_) { ok = r2.ok; }
         } catch (_) {}
       }
 
