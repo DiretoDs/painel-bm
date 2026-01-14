@@ -515,6 +515,7 @@
           <span id="roleText">Acesso: —</span>
         </div>
 <button class="btn ghost" id="btnExport">Exportar CSV</button>
+        <button class="btn ghost hidden" id="btnConfigSync" title="Configurar sincronização (servidor) — necessário para todos verem as alterações">Configurar sync</button>
         <button class="btn" id="btnRecarregar">Recarregar</button>
         <button class="btn primary" id="btnTrocarAcesso">Trocar acesso</button>
       </div>
@@ -607,7 +608,7 @@
           </div>
           <div class="actions">
             <button class="btn danger" id="btnLimparForm">Limpar</button>
-            <button class="btn primary" id="btnSalvar">Salvar</button>
+            <button type="button" class="btn primary" id="btnSalvar">Salvar</button>
           </div>
         </div>
         <div class="card-body">
@@ -806,7 +807,41 @@
     </div>
   </div>
 
-  <script>
+  
+  <!-- CONFIG SYNC MODAL -->
+  <div class="overlay" id="configOverlay">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="configTitle">
+      <div class="modal-header">
+        <div class="modal-title" id="configTitle">Configurar sincronização</div>
+        <button class="btn ghost" id="btnFecharConfig" title="Fechar">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="hint" style="margin-bottom:10px">
+          Para que <b>todo mundo no VIEW</b> veja as alterações do ADMIN, este painel precisa de um <b>servidor</b> (API) para salvar e ler os registros.
+        </div>
+
+        <label for="configApiBase">URL da API (termina em <code>/exec</code>)</label>
+        <input type="url" id="configApiBase" placeholder="Ex: https://seu-dominio.com/exec" />
+
+        <div class="hint" style="margin-top:8px">
+          Dica rápida: você pode compartilhar um link de VIEW já com a API configurada (botão “Copiar link VIEW”).
+        </div>
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px">
+          <button class="btn" id="btnTestarApi">Testar conexão</button>
+          <button class="btn ghost" id="btnCopiarLinkViewer">Copiar link VIEW</button>
+          <button class="btn danger ghost" id="btnLimparApi">Desativar</button>
+        </div>
+
+        <div id="configApiStatus" class="hint" style="margin-top:12px">—</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn primary" id="btnSalvarConfig">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+<script>
     /*******************************
      * CONFIG (troque senhas aqui)
      *******************************/
@@ -821,15 +856,59 @@
 
       // Endpoints (mantidos do seu projeto atual)
       API: {
-  base: "https://script.google.com/macros/s/AKfycbz7M4QYpo05NOhshy4CvPSr4Zg3V-HFIEXldQarTWqJ8qxr2czXysK15WDvOq_r-JrS/exec",
-  get() { return this.base ? `${this.base}?action=get` : ""; },
-  save() { return this.base ? `${this.base}?action=save` : ""; },
-  alter() { return this.base ? `${this.base}?action=alter` : ""; },
-  del() { return this.base ? `${this.base}?action=delete` : ""; }
-}
-SHEETS_CSV_URL: "https://docs.google.com/spreadsheets/d/1plaZIUOYHLSMO610mZbF3g-wGzg7Q3uw7Aobqmzr2mU/export?format=csv&gid=0"
-
+        base: "",
+        get() { return this.base ? `${this.base}?action=get` : ""; },
+        save() { return this.base ? `${this.base}?action=save` : ""; },
+        alter() { return this.base ? `${this.base}?action=alter` : ""; },
+        del() { return this.base ? `${this.base}?action=delete` : ""; }
+      }
     };
+
+    /*******************************
+     * API BASE (Servidor) - Configurável
+     *******************************/
+    const API_BASE_KEY = "bm_api_base_v1";
+
+    function normalizeApiBase(v) {
+      v = String(v || "").trim();
+      if (!v) return "";
+      // remove ?action=... se a pessoa colar a URL completa
+      try {
+        const u = new URL(v);
+        u.searchParams.delete("action");
+        v = u.toString();
+      } catch (_) {
+        v = v.replace(/[?&]action=[^&]+/gi, "");
+      }
+      // remove barras extras no final
+      v = v.replace(/\/+$/, "");
+      return v;
+    }
+
+    function loadApiBase() {
+      try {
+        const u = new URL(window.location.href);
+        const fromUrl = u.searchParams.get("api");
+        if (fromUrl) {
+          const decoded = normalizeApiBase(decodeURIComponent(fromUrl));
+          if (decoded) localStorage.setItem(API_BASE_KEY, decoded);
+          return decoded;
+        }
+      } catch (_) {}
+      try { return normalizeApiBase(localStorage.getItem(API_BASE_KEY) || ""); } catch (_) { return ""; }
+    }
+
+    function setApiBase(v) {
+      const norm = normalizeApiBase(v);
+      CONFIG.API.base = norm;
+      try {
+        if (norm) localStorage.setItem(API_BASE_KEY, norm);
+        else localStorage.removeItem(API_BASE_KEY);
+      } catch (_) {}
+      return norm;
+    }
+
+
 
     /*******************************
      * STATE
@@ -838,6 +917,8 @@ SHEETS_CSV_URL: "https://docs.google.com/spreadsheets/d/1plaZIUOYHLSMO610mZbF3g-
     let currentPage = 1;
     let currentRole = null; // null | viewer | admin
     let editingId = null;
+    let apiSyncInFlight = false;
+    let apiPollTimer = null;
 
     const els = {};
     function q(id) { return document.getElementById(id); }
@@ -1102,165 +1183,153 @@ SHEETS_CSV_URL: "https://docs.google.com/spreadsheets/d/1plaZIUOYHLSMO610mZbF3g-
         .replaceAll("'", "&#039;");
     }
 
-        /*******************************
+    /*******************************
      * API
      *******************************/
-/*******************************
- * GOOGLE SHEETS (READ via CSV export)
- * - Evita problemas de CORS no GET (GitHub Pages)
- * - WRITE continua no Apps Script (no-cors)
- *******************************/
-function parseCSV(text) {
-  const rows = [];
-  let row = [];
-  let cur = "";
-  let inQuotes = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    const next = text[i+1];
-
-    if (ch === '"' ) {
-      if (inQuotes && next === '"') {
-        cur += '"';
-        i++;
-      } else {
-        inQuotes = !inQuotes;
+    async function apiGet() {
+      if (apiSyncInFlight) return;
+      apiSyncInFlight = true;
+      const hasBase = !!(CONFIG.API && CONFIG.API.base);
+      if (!hasBase) {
+        setSync("bad", "Sincronização: desativada (sem servidor)");
+        els.lastSync.textContent = "Última atualização: local (" + nowBR() + ")";
+        apiSyncInFlight = false;
+        return;
       }
-      continue;
+      setSync("warn", "Sincronização: carregando…");
+      try {
+        const r = await fetch(CONFIG.API.get(), { method: "GET" });
+        const txt = await r.text();
+        const arr = dedupeRecords(onlyAllowedCompanies(normalizeArray(txt)));
+        if (arr.length) {
+          bmRegistros = arr;
+          saveLocal();
+          renderTable();
+        }
+        setSync("good", "Sincronização: online");
+        els.lastSync.textContent = "Última atualização: " + nowBR();
+      } catch (e) {
+        console.error(e);
+        setSync("bad", "Sincronização: offline (local)");
+        els.lastSync.textContent = "Última atualização: local (" + nowBR() + ")";
+      }
+      finally {
+        apiSyncInFlight = false;
+      }
     }
 
-    if (ch === ',' && !inQuotes) {
-      row.push(cur);
-      cur = "";
-      continue;
+    async function apiSave(record) {
+      if (!CONFIG.API || !CONFIG.API.base) {
+        showToast("Sincronização", "Servidor não configurado. Alterações ficam apenas no seu dispositivo.", "warn");
+        await apiGet();
+        return;
+      }
+
+      try {
+        await fetch(CONFIG.API.save(), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            data: record.data,
+            empresa: record.empresa,
+            facebook: record.facebook,
+            portifolio: record.portifolio,
+            status: record.status,
+            obs: record.obs
+          })
+        });
+      } catch (e) {
+        console.warn("Falha ao salvar na API, mantendo local.", e);
+      }
+      await apiGet();
     }
 
-    if ((ch === '
-' || ch === '
-') && !inQuotes) {
-      if (ch === '
-' && next === '
-') i++;
-      row.push(cur);
-      cur = "";
-      if (row.length > 1 || row[0] !== "") rows.push(row);
-      row = [];
-      continue;
+    async function apiAlter(record) {
+      if (!CONFIG.API || !CONFIG.API.base) {
+        showToast("Sincronização", "Servidor não configurado. Alterações ficam apenas no seu dispositivo.", "warn");
+        await apiGet();
+        return;
+      }
+
+      try {
+        await fetch(CONFIG.API.alter(), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: record.id,
+            data: record.data,
+            empresa: record.empresa,
+            facebook: record.facebook,
+            portifolio: record.portifolio,
+            status: record.status,
+            obs: record.obs
+          })
+        });
+      } catch (e) {
+        console.warn("Falha ao alterar na API, mantendo local.", e);
+      }
+      await apiGet();
     }
 
-    cur += ch;
-  }
-  row.push(cur);
-  if (row.length > 1 || row[0] !== "") rows.push(row);
-  return rows;
-}
+    async function apiDelete(record) {
+      if (!CONFIG.API || !CONFIG.API.base) {
+        showToast("Sincronização", "Servidor não configurado. Exclusões ficam apenas no seu dispositivo.", "warn");
+        await apiGet();
+        return false;
+      }
 
-function mapSheetRow(headers, row) {
-  const obj = {};
-  for (let i = 0; i < headers.length; i++) {
-    const k = String(headers[i] || "").trim().toLowerCase();
-    obj[k] = row[i] ?? "";
-  }
+      const payload = { id: record.id, empresa: record.empresa };
+      let ok = false;
+      try {
+        const r = await fetch(CONFIG.API.del(), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        ok = r.ok;
+      } catch (_) {}
 
-  // mapeia para o formato do painel
-  return {
-    id: obj["id"] || obj["_id"] || obj["uuid"] || "",
-    data: obj["data"] || obj["date"] || obj["dia"] || "",
-    empresa: (obj["empresa"] || obj["company"] || "").toUpperCase(),
-    facebook: obj["facebook"] || obj["perfil"] || obj["nome"] || "",
-    portifolio: obj["portifolio"] || obj["portfólio"] || obj["portfolio"] || obj["bm"] || "",
-    status: obj["status"] || "analise",
-    obs: obj["obs"] || obj["observacao"] || obj["observação"] || ""
-  };
-}
+      // fallback: alguns webhooks não aceitam DELETE no browser
+      if (!ok) {
+        try {
+          const r2 = await fetch(CONFIG.API.del(), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          ok = r2.ok;
+        } catch (_) {}
+      }
 
-async function apiGet() {
-  setSync("warn", "Sincronização: carregando…");
-  try {
-    const url = `${CONFIG.SHEETS_CSV_URL}&t=${Date.now()}`;
-    const r = await fetch(url, { method: "GET", cache: "no-store" });
-    const csv = await r.text();
-
-    // Se vier HTML (erro/permissão), cai no catch abaixo
-    if (csv.trim().startsWith("<")) throw new Error("Resposta não é CSV (provável permissão na planilha).");
-
-    const rows = parseCSV(csv);
-    if (!rows.length) {
-      bmRegistros = [];
-      saveLocal();
-      renderTable();
-      setSync("bad", "Sincronização: sem dados");
-      els.lastSync.textContent = "Última atualização: " + nowBR();
-      return;
+      await apiGet();
+      return ok;
     }
 
-    const headers = rows[0];
-    const dataRows = rows.slice(1);
-
-    const mapped = dataRows
-      .filter(rw => rw.some(c => String(c || "").trim() !== ""))
-      .map(rw => mapSheetRow(headers, rw));
-
-    const arr = dedupeRecords(onlyAllowedCompanies(mapped));
-    bmRegistros = arr;
-    saveLocal();
-    renderTable();
-
-    setSync("good", "Sincronização: online");
-    els.lastSync.textContent = "Última atualização: " + nowBR();
-  } catch (e) {
-    console.error(e);
-    setSync("bad", "Sincronização: offline (local)");
-    els.lastSync.textContent = "Última atualização: local (" + nowBR() + ")";
-  }
-}
-
-async function apiSave(record) {
-  try {
-    await fetch(CONFIG.API.save(), {
-      method: "POST",
-      mode: "no-cors",
-      headers: { "Content-Type": "text/plain" },
-      body: JSON.stringify(record)
-    });
-  } catch (e) {
-    console.warn("Falha ao salvar na API, mantendo local.", e);
-  }
-  // pequena espera para a planilha refletir (Google pode demorar alguns segundos)
-  setTimeout(apiGet, 900);
-}
-
-async function apiAlter(record) {
-  try {
-    await fetch(CONFIG.API.alter(), {
-      method: "POST",
-      mode: "no-cors",
-      headers: { "Content-Type": "text/plain" },
-      body: JSON.stringify(record)
-    });
-  } catch (e) {
-    console.warn("Falha ao alterar na API, mantendo local.", e);
-  }
-  setTimeout(apiGet, 900);
-}
-
-async function apiDelete(record) {
-  try {
-    await fetch(CONFIG.API.del(), {
-      method: "POST",
-      mode: "no-cors",
-      headers: { "Content-Type": "text/plain" },
-      body: JSON.stringify({ id: record.id })
-    });
-  } catch (e) {
-    console.warn("Falha ao deletar na API.", e);
-  }
-  setTimeout(apiGet, 900);
-  return true;
-}
-
+    
     /*******************************
+     * AUTO SYNC (VIEW)
+     *******************************/
+    function stopAutoSync() {
+      try { if (apiPollTimer) clearInterval(apiPollTimer); } catch(_) {}
+      apiPollTimer = null;
+    }
+
+    function startAutoSync() {
+      stopAutoSync();
+      // só faz polling se tiver servidor configurado
+      if (!CONFIG.API || !CONFIG.API.base) return;
+
+      // viewer puxa mais rápido; admin um pouco mais lento
+      const ms = (currentRole === "viewer") ? 15000 : 20000;
+
+      apiPollTimer = setInterval(() => {
+        // evita bater se overlay de login estiver aberto
+        if (els.loginOverlay && els.loginOverlay.style.display === "grid") return;
+        apiGet();
+      }, ms);
+    }
+
+/*******************************
      * ADMIN ACTIONS
      *******************************/
     function ensureAdminOrLogin() {
@@ -1419,6 +1488,29 @@ async function apiDelete(record) {
       els.editOverlay.classList.remove("active");
     }
 
+    /*******************************
+     * CONFIG MODAL (Sync)
+     *******************************/
+    function updateConfigStatus(msg) {
+      if (!els.configApiStatus) return;
+      els.configApiStatus.textContent = msg || "—";
+    }
+
+    function openConfig() {
+      const current = CONFIG.API && CONFIG.API.base ? CONFIG.API.base : loadApiBase();
+      if (current && (!CONFIG.API.base)) CONFIG.API.base = current;
+      els.configApiBase.value = current || "";
+      updateConfigStatus(current ? "Servidor carregado. Você pode testar e salvar." : "Sem servidor configurado.");
+      els.configOverlay.classList.add("active");
+      try { els.configApiBase.focus(); } catch(_) {}
+    }
+
+    function closeConfig() {
+      els.configOverlay.classList.remove("active");
+    }
+
+
+
     function confirmDelete(id) {
       if (!ensureAdminOrLogin()) return;
       const r = bmRegistros.find(x => x.id == id);
@@ -1477,11 +1569,15 @@ async function apiDelete(record) {
       const isAdmin = currentRole === "admin";
       els.adminCard.classList.toggle("hidden", !isAdmin);
       els.thAcoes.classList.toggle("hidden", !isAdmin);
+      // botão de configuração só para Admin
+      if (els.btnConfigSync) els.btnConfigSync.classList.toggle("hidden", !isAdmin);
 
-      // indicador de acesso (confiança)
+// indicador de acesso (confiança)
       const label = isAdmin ? "Admin" : (currentRole === "viewer" ? "Visualização" : "—");
       els.roleText.textContent = `Acesso: ${label}`;
       els.roleDot.className = "dot " + (isAdmin ? "warn" : (currentRole === "viewer" ? "good" : ""));
+
+      startAutoSync();
 
       renderTable();
     }
@@ -1525,13 +1621,14 @@ async function apiDelete(record) {
      *******************************/
     function initEls() {
       [
-        "syncPill","syncDot","syncText","lastSync","rolePill","roleDot","roleText",
+        "syncPill","syncDot","syncText","toastWrap","lastSync","rolePill","roleDot","roleText",
         "filterDate","filterEmpresa","filterStatus","searchInput",
         "prevPage","nextPage","pageInfo","countInfo","tableBody","thAcoes",
         "mTotal","mAprovado","mAnalise","mRisco",
-        "btnClearFilters","btnRecarregar","btnExport","btnTrocarAcesso",
+        "btnClearFilters","btnRecarregar","btnExport","btnConfigSync","btnTrocarAcesso",
         "adminCard","btnSalvar","btnLimparForm","inputDate","inputEmpresa","inputFacebook","inputPortfolio","inputStatus","inputObs",
         "loginOverlay","btnFecharLogin","roleSelect","passwordInput","btnEntrar",
+        "configOverlay","btnFecharConfig","configApiBase","btnTestarApi","btnCopiarLinkViewer","btnLimparApi","configApiStatus","btnSalvarConfig",
         "confirmOverlay","btnFecharConfirm","btnCancelConfirm","btnOkConfirm","confirmText","confirmPassword",
         "editOverlay","btnFecharEdit","btnCancelarEdit","btnSalvarEdit","editDate","editEmpresa","editFacebook","editPortfolio","editStatus","editObs","editPassword"
       ].forEach(id => els[id] = q(id));
@@ -1600,11 +1697,80 @@ async function apiDelete(record) {
       els.editOverlay.addEventListener("click", (e) => {
         if (e.target === els.editOverlay) closeEdit();
       });
-    }
+    
+
+      // Configuração de sincronização (Admin)
+      els.btnConfigSync.addEventListener("click", () => {
+        if (currentRole !== "admin") { showToast("Acesso", "Somente Admin pode configurar a sincronização.", "warn"); return; }
+        openConfig();
+      });
+
+      els.btnFecharConfig.addEventListener("click", closeConfig);
+      els.configOverlay.addEventListener("click", (e) => { if (e.target === els.configOverlay) closeConfig(); });
+
+      els.btnSalvarConfig.addEventListener("click", async () => {
+        if (currentRole !== "admin") return;
+        const v = setApiBase(els.configApiBase.value);
+        updateConfigStatus(v ? "Salvo. Sincronização ativa." : "Desativado. Sem servidor.");
+        showToast("Sincronização", v ? "Servidor configurado." : "Sincronização desativada.", v ? "good" : "warn");
+        closeConfig();
+        await apiGet();
+        startAutoSync();
+      });
+
+      els.btnLimparApi.addEventListener("click", async () => {
+        if (currentRole !== "admin") return;
+        setApiBase("");
+        els.configApiBase.value = "";
+        updateConfigStatus("Desativado. Sem servidor.");
+        showToast("Sincronização", "Sincronização desativada.", "warn");
+        await apiGet();
+        startAutoSync();
+      });
+
+      els.btnTestarApi.addEventListener("click", async () => {
+        const base = normalizeApiBase(els.configApiBase.value);
+        if (!base) { updateConfigStatus("Cole uma URL antes de testar."); return; }
+        const old = CONFIG.API.base;
+        CONFIG.API.base = base;
+        updateConfigStatus("Testando…");
+        try {
+          const r = await fetch(CONFIG.API.get(), { method: "GET" });
+          const txt = await r.text();
+          const arr = dedupeRecords(onlyAllowedCompanies(normalizeArray(txt)));
+          updateConfigStatus(r.ok ? `OK. Registros recebidos: ${arr.length}` : `Falhou. HTTP ${r.status}`);
+        } catch (e) {
+          updateConfigStatus("Falhou ao conectar (CORS, URL inválida ou servidor offline).");
+        } finally {
+          CONFIG.API.base = old; // não salva, só testou
+        }
+      });
+
+      els.btnCopiarLinkViewer.addEventListener("click", async () => {
+        const base = normalizeApiBase(els.configApiBase.value || CONFIG.API.base);
+        if (!base) { updateConfigStatus("Cole uma URL antes de copiar o link."); return; }
+        try {
+          const u = new URL(window.location.href);
+          u.searchParams.set("api", base);
+          // garante que quem abrir como VIEW consiga logar e ver
+          const link = u.toString();
+          await navigator.clipboard.writeText(link);
+          updateConfigStatus("Link copiado para a área de transferência.");
+          showToast("Link", "Link VIEW copiado.", "good");
+        } catch (e) {
+          updateConfigStatus("Não consegui copiar automaticamente. Copie manualmente pela barra do navegador.");
+        }
+      });
+
+
+}
 
     document.addEventListener("DOMContentLoaded", async () => {
       initEls();
       fillCompanySelects();
+
+      // carrega servidor (API) via ?api=... ou localStorage
+      setApiBase(loadApiBase());
 
       // data default: hoje
       const today = new Date().toISOString().slice(0,10);
