@@ -317,6 +317,10 @@
   .b-gbr{ color: rgba(59,130,246,.98); border-color: rgba(59,130,246,.22); background: rgba(59,130,246,.12); }
   .b-3p{ color: rgba(249,115,22,.98); border-color: rgba(249,115,22,.22); background: rgba(249,115,22,.12); }
 
+  .b-m2{ color:#22C55E; border-color:rgba(34,197,94,.22); background:rgba(34,197,94,.12); }
+  .b-2a{ color:#EC4899; border-color:rgba(236,72,153,.22); background:rgba(236,72,153,.12); }
+  .b-vmc{ color:#3B82F6; border-color:rgba(148,163,184,.35); background:linear-gradient(135deg, rgba(59,130,246,.18), rgba(148,163,184,.18)); }
+
 
   .iconbtn{
     border: 1px solid var(--border2);
@@ -862,7 +866,7 @@
      * CONFIG (troque senhas aqui)
      *******************************/
     const CONFIG = {
-      EMPRESAS: ["GBR", "3P"],
+      EMPRESAS: ["GBR", "3P", "M2", "2A", "VMC"],
       STORAGE_KEY: "bm-painel-gbr-3p-v3",
       ITEMS_PER_PAGE: 50,
       REQUIRE_PASSWORD_ON_EDIT: false,
@@ -1130,6 +1134,9 @@
       const e = String(empresa || "").toUpperCase();
       if (e === "GBR") return `<span class="badge b-gbr">GBR</span>`;
       if (e === "3P") return `<span class="badge b-3p">3P</span>`;
+      if (e === "M2") return `<span class="badge b-m2">M2</span>`;
+      if (e === "2A") return `<span class="badge b-2a">2A</span>`;
+      if (e === "VMC") return `<span class="badge b-vmc">VMC</span>`;
       return `<span class="badge b-neutral">${escapeHtml(e || "-")}</span>`;
     }
 
