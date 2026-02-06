@@ -225,7 +225,7 @@
 
   .filters{
     display:grid;
-    grid-template-columns: 190px 190px 190px 190px 1fr;
+    grid-template-columns: 190px 190px 190px 1fr;
     gap:12px;
     align-items:end;
   }
@@ -914,7 +914,7 @@
      * CONFIG (troque senhas aqui)
      *******************************/
     const CONFIG = {
-      EMPRESAS: ["GBR", "3P", "M2", "2A", "VMC"],
+      EMPRESAS: ["GBR","3P","M2","2A","VMC"],
       STORAGE_KEY: "bm-painel-gbr-3p-v3",
       ITEMS_PER_PAGE: 50,
       REQUIRE_PASSWORD_ON_EDIT: false,
@@ -1102,8 +1102,8 @@
             facebook: r.facebook || "",
             portifolio: r.portifolio || r.portfolio || "",
             status: r.status || "analise",
-            limite: r.limite || r.limiteDisparos || "",
-            chips: r.chips || r.chipsConectados || "",
+            limite: r.limite || "",
+            chips: r.chips || "",
             obs: r.obs || ""
           };
         });
@@ -1271,6 +1271,8 @@ function statusBadge(status) {
           <td>${escapeHtml(r.facebook || "-")}</td>
           <td>${escapeHtml(r.portifolio || "-")}</td>
           <td>${statusBadge(r.status)}</td>
+          <td>${escapeHtml(r.limite || "-")}</td>
+          <td>${escapeHtml(r.chips || "-")}</td>
           <td>${escapeHtml(r.obs || "")}</td>
           <td>${acoes}</td>
         </tr>`;
@@ -1344,7 +1346,7 @@ function statusBadge(status) {
       try {
         await fetch(CONFIG.API.save(), {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
           body: JSON.stringify({
             data: record.data,
             empresa: record.empresa,
@@ -1371,7 +1373,7 @@ function statusBadge(status) {
       try {
         const r = await fetch(CONFIG.API.alter(), {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
           body: JSON.stringify({
             id: record.id,
             data: record.data,
@@ -1416,7 +1418,7 @@ async function apiDelete(record) {
       try {
         const r = await fetch(CONFIG.API.del(), {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
           body: JSON.stringify(payload)
         });
         try { const j = JSON.parse(await r.text()); ok = !!j.ok; } catch(_) { ok = r.ok; }
@@ -1427,7 +1429,7 @@ async function apiDelete(record) {
         try {
           const r2 = await fetch(CONFIG.API.del(), {
             method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
             body: JSON.stringify(payload)
           });
           try { const j2 = JSON.parse(await r2.text()); ok = !!j2.ok; } catch(_) { ok = r2.ok; }
@@ -1811,7 +1813,7 @@ async function apiDelete(record) {
       els.filterDate.addEventListener("change", () => { currentPage=1; renderTable(); });
       els.filterEmpresa.addEventListener("change", () => { currentPage=1; renderTable(); });
       els.filterStatus.addEventListener("change", () => { currentPage=1; renderTable(); });
-      els.filterLimite.addEventListener("change", () => { currentPage=1; renderTable(); });
+      if (els.filterLimite) els.filterLimite.addEventListener("change", () => { currentPage=1; renderTable(); });
       els.searchInput.addEventListener("input", () => { currentPage=1; renderTable(); });
 
       els.prevPage.addEventListener("click", () => { currentPage=Math.max(1, currentPage-1); renderTable(); });
