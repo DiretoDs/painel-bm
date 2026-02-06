@@ -225,7 +225,7 @@
 
   .filters{
     display:grid;
-    grid-template-columns: 190px 190px 190px 190px 1fr;
+    grid-template-columns: 190px 190px 190px 1fr;
     gap:12px;
     align-items:end;
   }
@@ -583,18 +583,6 @@
               </select>
             </div>
             <div>
-              <label for="filterLimite">Limite</label>
-              <select id="filterLimite">
-                <option value="">Todos</option>
-                <option value="250">250</option>
-                <option value="2000">2000</option>
-                <option value="10000">10.000</option>
-                <option value="100000">100.000</option>
-                <option value="ilimitado">Ilimitado</option>
-              </select>
-            </div>
-
-            <div>
               <label for="searchInput">Busca</label>
               <input type="text" id="searchInput" placeholder="Buscar por Facebook/Nome, Portfólio ou Observações…" />
             </div>
@@ -620,8 +608,6 @@
                   <th style="min-width:220px">Facebook / Nome</th>
                   <th style="min-width:220px">BM / Portfólio</th>
                   <th style="min-width:160px">Status</th>
-                  <th style="min-width:120px">Limite</th>
-                  <th style="min-width:120px">Chips</th>
                   <th style="min-width:320px">Observações</th>
                   <th style="min-width:170px" id="thAcoes">Ações</th>
                 </tr>
@@ -675,23 +661,6 @@
                 <option value="congelado">Site congelado</option>
               </select>
               <div class="hint">Dica: use “Observações” para registrar contexto (ex.: domínio, motivo, etapa, etc.).</div>
-              <div style="height:12px"></div>
-              <div class="filters layout-2small">
-                <div>
-                  <label for="inputLimite">Limite de disparos (chip)</label>
-                  <select id="inputLimite">
-                    <option value="250">250</option>
-                    <option value="2000">2000</option>
-                    <option value="10000">10.000</option>
-                    <option value="100000">100.000</option>
-                    <option value="ilimitado">Ilimitado</option>
-                  </select>
-                </div>
-                <div>
-                  <label for="inputChips">Chips conectados</label>
-                  <input type="text" id="inputChips" placeholder="Ex: 0/30, 1/30, 2/30…" />
-                </div>
-              </div>
             </div>
             <div>
               <label for="inputObs">Observações</label>
@@ -837,21 +806,6 @@
               <option value="congelado">Site congelado</option>
             </select>
           </div>
-          <div>
-            <label for="editLimite">Limite</label>
-            <select id="editLimite">
-              <option value="250">250</option>
-              <option value="2000">2000</option>
-              <option value="10000">10.000</option>
-              <option value="100000">100.000</option>
-              <option value="ilimitado">Ilimitado</option>
-            </select>
-          </div>
-          <div>
-            <label for="editChips">Chips conectados</label>
-            <input type="text" id="editChips" placeholder="Ex: 0/30" />
-          </div>
-
           <div>
             <label for="editObs">Observações</label>
             <textarea id="editObs"></textarea>
@@ -1100,8 +1054,6 @@
             facebook: r.facebook || "",
             portifolio: r.portifolio || r.portfolio || "",
             status: r.status || "analise",
-            limite: r.limite || r.limiteDisparos || "",
-            chips: r.chips || r.chipsConectados || "",
             obs: r.obs || ""
           };
         });
@@ -1201,14 +1153,12 @@ function statusBadge(status) {
       const fDate = els.filterDate.value;
       const fEmp = els.filterEmpresa.value;
       const fStatus = els.filterStatus.value;
-      const fLimite = els.filterLimite ? els.filterLimite.value : "";
       const qtext = safeLower(els.searchInput.value).trim();
 
       return (data || []).filter(r => {
         if (fDate && r.data !== fDate) return false;
         if (fEmp && String(r.empresa).toUpperCase() !== String(fEmp).toUpperCase()) return false;
         if (fStatus && String(r.status).toLowerCase() !== String(fStatus).toLowerCase()) return false;
-        if (fLimite && String(r.limite || "").toLowerCase() !== String(fLimite).toLowerCase()) return false;
         if (qtext) {
           const hay = safeLower(r.facebook) + " " + safeLower(r.portifolio) + " " + safeLower(r.obs);
           if (!hay.includes(qtext)) return false;
@@ -1270,14 +1220,12 @@ function statusBadge(status) {
           <td>${escapeHtml(r.facebook || "-")}</td>
           <td>${escapeHtml(r.portifolio || "-")}</td>
           <td>${statusBadge(r.status)}</td>
-          <td>${escapeHtml((r.limite || "-"))}</td>
-          <td>${escapeHtml((r.chips || "-"))}</td>
           <td>${escapeHtml(r.obs || "")}</td>
           <td>${acoes}</td>
         </tr>`;
       }).join("");
 
-      els.tableBody.innerHTML = rows || `<tr><td colspan="9" style="color:var(--muted);font-weight:700;">Nenhum registro encontrado.</td></tr>`;
+      els.tableBody.innerHTML = rows || `<tr><td colspan="7" style="color:var(--muted);font-weight:700;">Nenhum registro encontrado.</td></tr>`;
 
       // esconder coluna Ações em modo viewer
       els.thAcoes.classList.toggle("hidden", currentRole !== "admin");
@@ -1317,7 +1265,7 @@ function statusBadge(status) {
       }
       setSync("warn", "Sincronização: carregando…");
       try {
-        const r = await fetch(CONFIG.API.get(), { method: "GET" });
+        const r = await fetch(CONFIG.API.get() + "&_ts=" + Date.now(), { method: "GET", cache: "no-store" });
         const txt = await r.text();
         const arr = dedupeRecords(onlyAllowedCompanies(normalizeArray(txt)));
         bmRegistros = arr;
@@ -1345,15 +1293,14 @@ function statusBadge(status) {
       try {
         await fetch(CONFIG.API.save(), {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             data: record.data,
             empresa: record.empresa,
             facebook: record.facebook,
             portifolio: record.portifolio,
             status: record.status,
-            obs: record.obs,
-            limite: record.limite || "",
-            chips: record.chips || ""
+            obs: record.obs
           })
         });
       } catch (e) {
@@ -1373,6 +1320,7 @@ function statusBadge(status) {
       try {
         const r = await fetch(CONFIG.API.alter(), {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             id: record.id,
             data: record.data,
@@ -1380,9 +1328,7 @@ function statusBadge(status) {
             facebook: record.facebook,
             portifolio: record.portifolio,
             status: record.status,
-            obs: record.obs,
-            limite: record.limite || "",
-            chips: record.chips || ""
+            obs: record.obs
           })
         });
 
@@ -1419,6 +1365,7 @@ async function apiDelete(record) {
       try {
         const r = await fetch(CONFIG.API.del(), {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
         try { const j = JSON.parse(await r.text()); ok = !!j.ok; } catch(_) { ok = r.ok; }
@@ -1429,6 +1376,7 @@ async function apiDelete(record) {
         try {
           const r2 = await fetch(CONFIG.API.del(), {
             method: "POST",
+          headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
           });
           try { const j2 = JSON.parse(await r2.text()); ok = !!j2.ok; } catch(_) { ok = r2.ok; }
@@ -1522,8 +1470,6 @@ async function apiDelete(record) {
       const portifolio = els.inputPortfolio.value.trim();
       const status = els.inputStatus.value;
       const obs = els.inputObs.value.trim();
-      const limite = els.inputLimite ? els.inputLimite.value : "";
-      const chips = els.inputChips ? els.inputChips.value.trim() : "";
 
       if (!data || !empresa || (!facebook && !portifolio)) {
         showToast("Campos obrigatórios", "Preencha Data, Empresa e Facebook/Nome ou Portfólio.", "warn");
@@ -1534,7 +1480,7 @@ async function apiDelete(record) {
 
       if (found.index !== -1) {
         const existing = bmRegistros[found.index];
-        const updatedRec = { ...existing, data, empresa, facebook, portifolio, status, obs, limite, chips, limite, chips };
+        const updatedRec = { ...existing, data, empresa, facebook, portifolio, status, obs };
 
         // move para o topo (mais recente)
         bmRegistros.splice(found.index, 1);
@@ -1551,7 +1497,7 @@ async function apiDelete(record) {
       } else {
         const newRec = {
           id: String(Date.now()) + Math.random().toString(16).slice(2),
-          data, empresa, facebook, portifolio, status, obs, limite, chips
+          data, empresa, facebook, portifolio, status, obs
         };
 
         bmRegistros.unshift(newRec);
@@ -1578,8 +1524,6 @@ async function apiDelete(record) {
       els.editFacebook.value = r.facebook || "";
       els.editPortfolio.value = r.portifolio || "";
       els.editStatus.value = r.status || "analise";
-      if (els.editLimite) els.editLimite.value = r.limite || "2000";
-      if (els.editChips) els.editChips.value = r.chips || "";
       els.editObs.value = r.obs || "";
       els.editPassword.value = "";
 
@@ -1612,8 +1556,6 @@ async function apiDelete(record) {
         facebook: els.editFacebook.value.trim(),
         portifolio: els.editPortfolio.value.trim(),
         status: els.editStatus.value,
-        limite: (els.editLimite ? els.editLimite.value : ""),
-        chips: (els.editChips ? els.editChips.value.trim() : ""),
         obs: els.editObs.value.trim()
       };
 
@@ -1696,7 +1638,7 @@ async function apiDelete(record) {
      *******************************/
     function exportCSV() {
       const filtered = sortData(applyFilters(bmRegistros));
-      const header = ["data","empresa","facebook","portifolio","status","limite","chips","obs"];
+      const header = ["data","empresa","facebook","portifolio","status","obs"];
       const rows = filtered.map(r => header.map(k => {
         const v = (r[k] ?? "");
         return `"${String(v).replaceAll('"','""')}"`;
@@ -1776,15 +1718,15 @@ async function apiDelete(record) {
     function initEls() {
       [
         "syncPill","syncDot","syncText","toastWrap","lastSync","rolePill","roleDot","roleText",
-        "filterDate","filterEmpresa","filterStatus","filterLimite","searchInput",
+        "filterDate","filterEmpresa","filterStatus","searchInput",
         "prevPage","nextPage","pageInfo","countInfo","tableBody","thAcoes",
         "mTotal","mAprovado","mAnalise","mRisco",
         "btnClearFilters","btnRecarregar","btnExport","btnConfigSync","btnTrocarAcesso",
-        "adminCard","btnSalvar","btnLimparForm","inputDate","inputEmpresa","inputFacebook","inputPortfolio","inputStatus","inputLimite","inputChips","inputObs",
+        "adminCard","btnSalvar","btnLimparForm","inputDate","inputEmpresa","inputFacebook","inputPortfolio","inputStatus","inputObs",
         "loginOverlay","btnFecharLogin","roleSelect","passwordInput","btnEntrar",
         "configOverlay","btnFecharConfig","configApiBase","btnTestarApi","btnCopiarLinkViewer","btnLimparApi","configApiStatus","btnSalvarConfig",
         "confirmOverlay","btnFecharConfirm","btnCancelConfirm","btnOkConfirm","confirmText","confirmPassword",
-        "editOverlay","btnFecharEdit","btnCancelarEdit","btnSalvarEdit","editDate","editEmpresa","editFacebook","editPortfolio","editStatus","editLimite","editChips","editObs","editPassword","editAuthWrap","editAuthHint"
+        "editOverlay","btnFecharEdit","btnCancelarEdit","btnSalvarEdit","editDate","editEmpresa","editFacebook","editPortfolio","editStatus","editObs","editPassword","editAuthWrap","editAuthHint"
       ].forEach(id => els[id] = q(id));
 
       // alias
@@ -1797,7 +1739,6 @@ async function apiDelete(record) {
       els.filterDate.addEventListener("change", () => { currentPage=1; renderTable(); });
       els.filterEmpresa.addEventListener("change", () => { currentPage=1; renderTable(); });
       els.filterStatus.addEventListener("change", () => { currentPage=1; renderTable(); });
-      els.filterLimite.addEventListener("change", () => { currentPage=1; renderTable(); });
       els.searchInput.addEventListener("input", () => { currentPage=1; renderTable(); });
 
       els.prevPage.addEventListener("click", () => { currentPage=Math.max(1, currentPage-1); renderTable(); });
@@ -1812,7 +1753,6 @@ async function apiDelete(record) {
         els.filterDate.value = "";
         els.filterEmpresa.value = "";
         els.filterStatus.value = "";
-        els.filterLimite.value = "";
         els.searchInput.value = "";
         currentPage = 1;
         renderTable();
@@ -1891,7 +1831,7 @@ async function apiDelete(record) {
         CONFIG.API.base = base;
         updateConfigStatus("Testando…");
         try {
-          const r = await fetch(CONFIG.API.get(), { method: "GET" });
+          const r = await fetch(CONFIG.API.get() + "&_ts=" + Date.now(), { method: "GET", cache: "no-store" });
           const txt = await r.text();
           const arr = dedupeRecords(onlyAllowedCompanies(normalizeArray(txt)));
           updateConfigStatus(r.ok ? `OK. Registros recebidos: ${arr.length}` : `Falhou. HTTP ${r.status}`);
