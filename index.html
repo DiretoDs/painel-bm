@@ -925,12 +925,8 @@
 
       // Endpoints (mantidos do seu projeto atual)
       API: {
-        base: DEFAULT_API_BASE,
-        get:   () => `${DEFAULT_API_BASE}?action=get`,
-        save:  () => `${DEFAULT_API_BASE}?action=save`,
-        alter: () => `${DEFAULT_API_BASE}?action=alter`,
-        del:   () => `${DEFAULT_API_BASE}?action=delete`,
-      },
+        base: "",
+        get() { return this.base ? `${this.base}?action=get` : ""; },
         save() { return this.base ? `${this.base}?action=save` : ""; },
         alter() { return this.base ? `${this.base}?action=alter` : ""; },
         del() { return this.base ? `${this.base}?action=delete` : ""; }
@@ -987,7 +983,66 @@
 
 
 
+    
     /*******************************
+     * JSONP + POST no-cors (para evitar CORS)
+     *******************************/
+    function jsonpGet_(url, timeoutMs = 12000) {
+      return new Promise((resolve, reject) => {
+        try {
+          if (!url) return reject(new Error("URL vazia"));
+          const cb = "__bm_jsonp_" + Math.random().toString(16).slice(2);
+          const s = document.createElement("script");
+          let done = false;
+
+          const cleanup = () => {
+            if (done) return;
+            done = true;
+            try { delete window[cb]; } catch (_) { window[cb] = undefined; }
+            if (s && s.parentNode) s.parentNode.removeChild(s);
+          };
+
+          window[cb] = (data) => {
+            cleanup();
+            resolve(data);
+          };
+
+          s.onerror = () => {
+            cleanup();
+            reject(new Error("Falha ao carregar JSONP"));
+          };
+
+          const sep = url.includes("?") ? "&" : "?";
+          s.src = url + sep + "callback=" + cb + "&_ts=" + Date.now();
+          document.body.appendChild(s);
+
+          setTimeout(() => {
+            cleanup();
+            reject(new Error("Timeout JSONP"));
+          }, timeoutMs);
+        } catch (err) {
+          reject(err);
+        }
+      });
+    }
+
+    async function postNoCors_(url, bodyObj) {
+      try {
+        if (!url) return false;
+        await fetch(url, {
+          method: "POST",
+          mode: "no-cors",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify(bodyObj || {})
+        });
+        return true;
+      } catch (e) {
+        console.warn("POST no-cors falhou", e);
+        return false;
+      }
+    }
+
+/*******************************
      * STATE
      *******************************/
     let bmRegistros = [];
@@ -1320,11 +1375,11 @@ function statusBadge(status) {
         apiSyncInFlight = false;
         return;
       }
+
       setSync("warn", "Sincronização: carregando…");
       try {
-        const r = await fetch(CONFIG.API.get() + "&_ts=" + Date.now(), { method: "GET", cache: "no-store" });
-        const txt = await r.text();
-        const arr = dedupeRecords(onlyAllowedCompanies(normalizeArray(txt)));
+        const raw = await jsonpGet_(CONFIG.API.get());
+        const arr = dedupeRecords(onlyAllowedCompanies(Array.isArray(raw) ? raw : []));
         bmRegistros = arr;
         saveLocal();
         renderTable();
@@ -1332,158 +1387,88 @@ function statusBadge(status) {
         els.lastSync.textContent = "Última atualização: " + nowBR();
       } catch (e) {
         console.error(e);
-        setSync("bad", "Sincronização: offline (local)");
+        setSync("warn", "Sincronização: falhou (modo local)");
         els.lastSync.textContent = "Última atualização: local (" + nowBR() + ")";
-      }
-      finally {
+      } finally {
         apiSyncInFlight = false;
       }
     }
 
     async function apiSave(record) {
-      try {
-        const r = await fetch(CONFIG.API.save(), {
-          method: "POST",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify(record),
-        });
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok || !data.ok) {
-          console.error("API save failed", { status: r.status, data });
-          alert("Erro ao salvar: " + (data.error || ("HTTP " + r.status)));
-          return { ok: false, error: data.error || ("HTTP " + r.status) };
-        }
-        return data;
-      } catch (err) {
-        console.error("API save exception", err);
-        alert("Erro ao salvar (rede): " + err);
-        return { ok: false, error: String(err) };
-      }
-    }
-
-      try {
-        await fetch(CONFIG.API.save(), {
-          method: "POST",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify({
-            data: record.data,
-            empresa: record.empresa,
-            facebook: record.facebook,
-            portifolio: record.portifolio,
-            status: record.status,
-            obs: record.obs
-          })
-        });
-      } catch (e) {
-        console.warn("Falha ao salvar na API, mantendo local.", e);
-      }
-      await apiGet();
-    }
-
-    async function apiAlter(record, password) {
-      try {
-        const r = await fetch(CONFIG.API.alter(), {
-          method: "POST",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify({ ...record, password }),
-        });
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok || !data.ok) {
-          console.error("API alter failed", { status: r.status, data });
-          alert("Erro ao atualizar: " + (data.error || ("HTTP " + r.status)));
-          return { ok:false, error: data.error || ("HTTP " + r.status) };
-        }
-        return data;
-      } catch (err) {
-        console.error("API alter exception", err);
-        alert("Erro ao atualizar (rede): " + err);
-        return { ok:false, error: String(err) };
-      }
-    }
-
-      let ok = false;
-      try {
-        const r = await fetch(CONFIG.API.alter(), {
-          method: "POST",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify({
-            id: record.id,
-            data: record.data,
-            empresa: record.empresa,
-            facebook: record.facebook,
-            portifolio: record.portifolio,
-            status: record.status,
-            obs: record.obs
-          })
-        });
-
-        // lê resposta do Apps Script (normalmente JSON {ok:true/false})
-        let j = null;
-        try { j = JSON.parse(await r.text()); } catch(_) {}
-        ok = !!(j && j.ok);
-
-        if (!ok) {
-          const msg = (j && j.error) ? j.error : (r.ok ? "Alteração não confirmada pela API." : `HTTP ${r.status}`);
-          throw new Error(msg);
-        }
-
-        showToast("Sincronização", "Alteração salva para todos.", "good");
-      } catch (e) {
-        console.warn("Falha ao alterar na API, mantendo local.", e);
-        showToast("Sincronização", "Falha ao salvar na API: " + (e && e.message ? e.message : "erro"), "warn", 8000);
+      if (!CONFIG.API || !CONFIG.API.base) {
+        showToast("Sincronização", "Servidor não configurado. Alterações ficam apenas no seu dispositivo.", "warn");
+        await apiGet();
+        return false;
       }
 
-      if (ok) await apiGet();
-      return ok;
-    }
+      const payload = {
+        data: record.data,
+        empresa: record.empresa,
+        facebook: record.facebook,
+        portifolio: record.portifolio,
+        status: record.status,
+        limite: record.limite || "",
+        chips: record.chips || "",
+        obs: record.obs || ""
+      };
 
-
-async function apiDelete(id, password) {
-      try {
-        const r = await fetch(CONFIG.API.del(), {
-          method: "POST",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify({ id, password }),
-        });
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok || !data.ok) {
-          console.error("API delete failed", { status: r.status, data });
-          alert("Erro ao excluir: " + (data.error || ("HTTP " + r.status)));
-          return { ok:false, error: data.error || ("HTTP " + r.status) };
-        }
-        return data;
-      } catch (err) {
-        console.error("API delete exception", err);
-        alert("Erro ao excluir (rede): " + err);
-        return { ok:false, error: String(err) };
-      }
-    }
-
-      const payload = { id: record.id, empresa: record.empresa };
-      let ok = false;
-      try {
-        const r = await fetch(CONFIG.API.del(), {
-          method: "POST",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify(payload)
-        });
-        try { const j = JSON.parse(await r.text()); ok = !!j.ok; } catch(_) { ok = r.ok; }
-      } catch (_) {}
-
-      // fallback: alguns webhooks não aceitam DELETE no browser
+      const ok = await postNoCors_(CONFIG.API.save(), payload);
       if (!ok) {
-        try {
-          const r2 = await fetch(CONFIG.API.del(), {
-            method: "POST",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-            body: JSON.stringify(payload)
-          });
-          try { const j2 = JSON.parse(await r2.text()); ok = !!j2.ok; } catch(_) { ok = r2.ok; }
-        } catch (_) {}
+        showToast("Sincronização", "Falha ao enviar para API (salvo apenas local).", "warn", 8000);
+        return false;
+      }
+
+      // Recarrega do servidor (via JSONP) para confirmar visualmente
+      await apiGet();
+      return true;
+    }
+
+    async function apiAlter(record) {
+      if (!CONFIG.API || !CONFIG.API.base) {
+        showToast("Sincronização", "Servidor não configurado. Alterações ficam apenas no seu dispositivo.", "warn");
+        await apiGet();
+        return false;
+      }
+
+      const payload = {
+        id: record.id,
+        data: record.data,
+        empresa: record.empresa,
+        facebook: record.facebook,
+        portifolio: record.portifolio,
+        status: record.status,
+        limite: record.limite || "",
+        chips: record.chips || "",
+        obs: record.obs || ""
+      };
+
+      const ok = await postNoCors_(CONFIG.API.alter(), payload);
+      if (!ok) {
+        showToast("Sincronização", "Falha ao enviar alteração para API (mantendo local).", "warn", 8000);
+        return false;
       }
 
       await apiGet();
-      return ok;
+      return true;
+    }
+
+
+async function apiDelete(record) {
+      if (!CONFIG.API || !CONFIG.API.base) {
+        showToast("Sincronização", "Servidor não configurado. Exclusões ficam apenas no seu dispositivo.", "warn");
+        await apiGet();
+        return false;
+      }
+
+      const payload = { id: record.id };
+      const ok = await postNoCors_(CONFIG.API.del(), payload);
+      if (!ok) {
+        showToast("Sincronização", "Falha ao enviar exclusão para API (mantendo local).", "warn", 8000);
+        return false;
+      }
+
+      await apiGet();
+      return true;
     }
 
     
@@ -1613,7 +1598,7 @@ async function apiDelete(id, password) {
       } else {
         const newRec = {
           id: String(Date.now()) + Math.random().toString(16).slice(2),
-          data, empresa, facebook, portifolio, status, obs
+          data, empresa, facebook, portifolio, status, limite, chips, obs
         };
 
         bmRegistros.unshift(newRec);
