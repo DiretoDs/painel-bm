@@ -1,4 +1,4 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8" />
@@ -925,8 +925,12 @@
 
       // Endpoints (mantidos do seu projeto atual)
       API: {
-        base: "",
-        get() { return this.base ? `${this.base}?action=get` : ""; },
+        base: DEFAULT_API_BASE,
+        get:   () => `${DEFAULT_API_BASE}?action=get`,
+        save:  () => `${DEFAULT_API_BASE}?action=save`,
+        alter: () => `${DEFAULT_API_BASE}?action=alter`,
+        del:   () => `${DEFAULT_API_BASE}?action=delete`,
+      },
         save() { return this.base ? `${this.base}?action=save` : ""; },
         alter() { return this.base ? `${this.base}?action=alter` : ""; },
         del() { return this.base ? `${this.base}?action=delete` : ""; }
@@ -1337,11 +1341,25 @@ function statusBadge(status) {
     }
 
     async function apiSave(record) {
-      if (!CONFIG.API || !CONFIG.API.base) {
-        showToast("Sincronização", "Servidor não configurado. Alterações ficam apenas no seu dispositivo.", "warn");
-        await apiGet();
-        return;
+      try {
+        const r = await fetch(CONFIG.API.save(), {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify(record),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.ok) {
+          console.error("API save failed", { status: r.status, data });
+          alert("Erro ao salvar: " + (data.error || ("HTTP " + r.status)));
+          return { ok: false, error: data.error || ("HTTP " + r.status) };
+        }
+        return data;
+      } catch (err) {
+        console.error("API save exception", err);
+        alert("Erro ao salvar (rede): " + err);
+        return { ok: false, error: String(err) };
       }
+    }
 
       try {
         await fetch(CONFIG.API.save(), {
@@ -1362,12 +1380,26 @@ function statusBadge(status) {
       await apiGet();
     }
 
-    async function apiAlter(record) {
-      if (!CONFIG.API || !CONFIG.API.base) {
-        showToast("Sincronização", "Servidor não configurado. Alterações ficam apenas no seu dispositivo.", "warn");
-        await apiGet();
-        return false;
+    async function apiAlter(record, password) {
+      try {
+        const r = await fetch(CONFIG.API.alter(), {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({ ...record, password }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.ok) {
+          console.error("API alter failed", { status: r.status, data });
+          alert("Erro ao atualizar: " + (data.error || ("HTTP " + r.status)));
+          return { ok:false, error: data.error || ("HTTP " + r.status) };
+        }
+        return data;
+      } catch (err) {
+        console.error("API alter exception", err);
+        alert("Erro ao atualizar (rede): " + err);
+        return { ok:false, error: String(err) };
       }
+    }
 
       let ok = false;
       try {
@@ -1406,12 +1438,26 @@ function statusBadge(status) {
     }
 
 
-async function apiDelete(record) {
-      if (!CONFIG.API || !CONFIG.API.base) {
-        showToast("Sincronização", "Servidor não configurado. Exclusões ficam apenas no seu dispositivo.", "warn");
-        await apiGet();
-        return false;
+async function apiDelete(id, password) {
+      try {
+        const r = await fetch(CONFIG.API.del(), {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({ id, password }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.ok) {
+          console.error("API delete failed", { status: r.status, data });
+          alert("Erro ao excluir: " + (data.error || ("HTTP " + r.status)));
+          return { ok:false, error: data.error || ("HTTP " + r.status) };
+        }
+        return data;
+      } catch (err) {
+        console.error("API delete exception", err);
+        alert("Erro ao excluir (rede): " + err);
+        return { ok:false, error: String(err) };
       }
+    }
 
       const payload = { id: record.id, empresa: record.empresa };
       let ok = false;
